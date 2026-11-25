@@ -23,7 +23,7 @@ From: rocker/verse:4.6.2
 
     pkgs <- c(
         # Data IO
-        'data.table', 'DBI', 'duckdb', 'arrow', 'fst', 'haven', 'iotools', 'here', 'anotherSAS7bdat',
+        'data.table', 'DBI', 'duckdb@2.0.0', 'arrow', 'fst', 'haven', 'iotools', 'here', 'anotherSAS7bdat',
 
         # Parallel processing
         'futureverse', 'parallelly', 'furrr', 'targets', 'tarchetypes', 'crew', 'mirai',
