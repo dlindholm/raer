@@ -56,13 +56,14 @@ jobs:
             APPTAINER_CACHEDIR=/mnt/apptainer-cache \
             apptainer build /mnt/out/raer.sif raer.def
 
+      # Run as root: Ubuntu 24.04 runners block unprivileged containers (AppArmor)
       - name: Check image and list R packages
         run: |
           ls -lh /mnt/out/raer.sif
-          apptainer exec /mnt/out/raer.sif uname -m
-          apptainer exec /mnt/out/raer.sif file /usr/local/lib/R/bin/exec/R
-          apptainer exec /mnt/out/raer.sif R --version | head -n 1
-          apptainer exec /mnt/out/raer.sif Rscript -e \
+          sudo apptainer exec /mnt/out/raer.sif uname -m
+          sudo apptainer exec /mnt/out/raer.sif file /usr/local/lib/R/bin/exec/R
+          sudo apptainer exec /mnt/out/raer.sif R --version | head -n 1
+          sudo apptainer exec --bind /mnt/out /mnt/out/raer.sif Rscript -e \
             "ip <- installed.packages()[, c('Package', 'Version')]; write.csv(ip, '/mnt/out/r_packages.csv', row.names = FALSE)"
           df -h / /mnt
 
