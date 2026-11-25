@@ -147,10 +147,11 @@ jobs:
             ```
             cat raer___TAG__.sif.part-* > raer___TAG__.sif
             ```
-          Check the download (should print "OK"):
+          Check the download (should print "OK"). On macOS:
           ```
-          shasum -a 256 -c raer___TAG__.sif.sha256     # macOS (Linux: sha256sum -c)
+          shasum -a 256 -c raer___TAG__.sif.sha256
           ```
+          On Linux, use `sha256sum -c` instead of `shasum -a 256 -c`.
 
           The def file and a list of installed R packages with versions are attached below.
           EOF
