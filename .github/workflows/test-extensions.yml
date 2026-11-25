@@ -18,9 +18,11 @@ jobs:
     steps:
       - name: Download DuckDB CLI ${{ matrix.duckdb }}
         run: |
-          curl -LsSf -o duckdb.zip \
-            https://github.com/duckdb/duckdb/releases/download/${{ matrix.duckdb }}/duckdb_cli-linux-amd64.zip
-          unzip -q duckdb.zip
+          curl -LsSf -o duckdb.tar.gz \
+            https://github.com/duckdb/duckdb/releases/download/${{ matrix.duckdb }}/duckdb-cli-linux-amd64.tar.gz
+          mkdir cli && tar -xzf duckdb.tar.gz -C cli
+          cp "$(find cli -type f -name duckdb | head -n 1)" ./duckdb
+          chmod +x ./duckdb
           ./duckdb -c "SELECT version();"
 
       - name: Install and load ${{ matrix.extension }}
