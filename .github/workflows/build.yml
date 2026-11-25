@@ -32,16 +32,16 @@ jobs:
           sudo apt-get install -y apptainer
           apptainer --version
 
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          preinstalled-runtimes: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: false
+      # - name: Free disk space
+      #   uses: jlumbroso/free-disk-space@main
+      #   with:
+      #     preinstalled-runtimes: true
+      #     android: true
+      #     dotnet: true
+      #     haskell: true
+      #     large-packages: true
+      #     docker-images: true
+      #     swap-storage: false
 
       - name: Prepare build directories
         run: |
