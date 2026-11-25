@@ -70,7 +70,7 @@ jobs:
       # ---- Test runs (no tag): downloadable artifact ----
       - name: Upload test image
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
           name: raer-test
           path: /mnt/out/raer.sif
@@ -109,33 +109,40 @@ jobs:
           fi
           ls -lh /mnt/out
 
+      # Uses the GitHub CLI (preinstalled on the runner) instead of a Node.js action
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            raer.def
-            /mnt/out/r_packages.csv
-            /mnt/out/*.sif
-            /mnt/out/*.part-*
-            /mnt/out/*.sha256
-          body: |
-            Apptainer image `raer` ${{ github.ref_name }} (linux/amd64).
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
 
-            **Option A: download from this page** (no tools needed)
-            - If there is a single `.sif` file below: download it and the `.sha256` file.
-            - If there are `.part-*` files instead: download all of them and the `.sha256` file into one folder, then join them:
-              ```
-              cat raer_${{ github.ref_name }}.sif.part-* > raer_${{ github.ref_name }}.sif
-              ```
-            Check the download (should print "OK"):
-            ```
-            shasum -a 256 -c raer_${{ github.ref_name }}.sif.sha256     # macOS (Linux: sha256sum -c)
-            ```
+          cat > notes.md << 'EOF'
+          Apptainer image `raer` __TAG__ (linux/amd64).
 
-            **Option B: pull with Apptainer**
+          **Option A: download from this page** (no tools needed)
+          - If there is a single `.sif` file below: download it and the `.sha256` file.
+          - If there are `.part-*` files instead: download all of them and the `.sha256` file into one folder, then join them:
             ```
-            apptainer pull raer_${{ github.ref_name }}.sif oras://ghcr.io/${{ env.OWNER }}/raer:${{ github.ref_name }}
+            cat raer___TAG__.sif.part-* > raer___TAG__.sif
             ```
+          Check the download (should print "OK"):
+          ```
+          shasum -a 256 -c raer___TAG__.sif.sha256     # macOS (Linux: sha256sum -c)
+          ```
 
-            The def file and a list of installed R packages with versions are attached below.
+          **Option B: pull with Apptainer**
+          ```
+          apptainer pull raer___TAG__.sif oras://ghcr.io/__OWNER__/raer:__TAG__
+          ```
+
+          The def file and a list of installed R packages with versions are attached below.
+          EOF
+          sed -i -e 's/^          //' -e "s/__TAG__/${TAG}/g" -e "s/__OWNER__/${OWNER}/g" notes.md
+
+          # Create the release if it doesn't exist yet (e.g. tag pushed with git)
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes ""
+
+          gh release upload "$TAG" raer.def /mnt/out/r_packages.csv /mnt/out/raer_* --clobber
+          gh release edit "$TAG" --notes-file notes.md
