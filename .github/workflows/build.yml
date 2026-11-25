@@ -24,7 +24,6 @@ on:
 
 permissions:
   contents: write     # create releases and tags
-  packages: write     # push to ghcr.io
 
 # Never run two builds at the same time; a newer push waits for the running one
 concurrency:
@@ -109,19 +108,7 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-      # ---- Releases: push to GitHub Container Registry + create release ----
-      - name: Push image to ghcr.io
-        if: steps.ver.outputs.release == 'true'
-        env:
-          TAG: ${{ steps.ver.outputs.tag }}
-        run: |
-          OWNER="${GITHUB_REPOSITORY_OWNER,,}"   # ghcr.io needs lowercase
-          echo "$GH_TOKEN" | \
-            apptainer registry login --username "${{ github.actor }}" --password-stdin oras://ghcr.io
-          apptainer push /mnt/out/raer.sif "oras://ghcr.io/${OWNER}/raer:${TAG}"
-          apptainer push /mnt/out/raer.sif "oras://ghcr.io/${OWNER}/raer:latest"
-          echo "OWNER=${OWNER}" >> "$GITHUB_ENV"
-
+      # ---- Releases: create a GitHub release with the image attached ----
       # Release assets must be < 2 GiB each: attach the .sif directly if it fits,
       # otherwise split it into parts
       - name: Prepare release files
@@ -154,7 +141,7 @@ jobs:
           cat > notes.md << 'EOF'
           Apptainer image `raer` __TAG__ (linux/amd64).
 
-          **Option A: download from this page** (no tools needed)
+          **Download from this page**
           - If there is a single `.sif` file below: download it and the `.sha256` file.
           - If there are `.part-*` files instead: download all of them and the `.sha256` file into one folder, then join them:
             ```
@@ -165,14 +152,9 @@ jobs:
           shasum -a 256 -c raer___TAG__.sif.sha256     # macOS (Linux: sha256sum -c)
           ```
 
-          **Option B: pull with Apptainer**
-          ```
-          apptainer pull raer___TAG__.sif oras://ghcr.io/__OWNER__/raer:__TAG__
-          ```
-
           The def file and a list of installed R packages with versions are attached below.
           EOF
-          sed -i -e "s/__TAG__/${TAG}/g" -e "s/__OWNER__/${OWNER}/g" notes.md
+          sed -i -e "s/__TAG__/${TAG}/g" notes.md
 
           gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md
           gh release upload "$TAG" raer.def /mnt/out/r_packages.csv /mnt/out/raer_* --clobber
