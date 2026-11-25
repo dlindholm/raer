@@ -1,47 +1,79 @@
 name: Build raer
 
-# Release:   push a tag, e.g.  git tag v4.6.2-2026.08.14 && git push --tags
-#            (or create a release/tag in the GitHub web UI)
-#            -> image pushed to ghcr.io/<you>/raer:<tag> and :latest, plus a GitHub Release
-# Test run:  "Run workflow" under the Actions tab -> image only as a downloadable artifact
+# Automatic:  push a change to raer.def on main
+#             -> builds the image and publishes a release automatically.
+#             The version is read from raer.def:  v<R version>-<CRAN snapshot date>
+#             e.g. "From: rocker/verse:4.6.2" + "WHEN='2026-08-14'" -> v4.6.2-2026.08.14
+#             If that version already exists (e.g. you only added packages),
+#             a suffix is added: v4.6.2-2026.08.14-2, -3, ...
+#
+# Manual:     Actions tab -> "Run workflow"
+#             - "Publish a release" unticked (default): test build, image as a 7-day artifact
+#             - ticked: same as the automatic release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: ['raer.def']
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Publish a release (otherwise test build only)'
+        type: boolean
+        default: false
 
 permissions:
-  contents: write     # create releases
+  contents: write     # create releases and tags
   packages: write     # push to ghcr.io
+
+# Never run two builds at the same time; a newer push waits for the running one
+concurrency:
+  group: build-raer
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest      # x86_64 / amd64
     timeout-minutes: 300
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      # Install Apptainer from its official Ubuntu PPA (before freeing disk space,
-      # so the package system is untouched)
+      - name: Decide version and mode
+        id: ver
+        run: |
+          RVER=$(grep -oP '^From:\s*rocker/\S+:\K[0-9.]+' raer.def)
+          SNAP=$(grep -oP "WHEN=['\"]?\K[0-9]{4}-[0-9]{2}-[0-9]{2}" raer.def | head -n 1 | tr - .)
+          if [ -z "$RVER" ] || [ -z "$SNAP" ]; then
+            echo "Could not read the R version or WHEN date from raer.def" >&2
+            exit 1
+          fi
+          BASE="v${RVER}-${SNAP}"
+          TAG="$BASE"; n=1
+          while gh release view "$TAG" > /dev/null 2>&1 || \
+                git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null 2>&1; do
+            n=$((n + 1)); TAG="${BASE}-${n}"
+          done
+
+          if [ "$GITHUB_EVENT_NAME" = "push" ] || [ "${{ inputs.release }}" = "true" ]; then
+            RELEASE=true
+          else
+            RELEASE=false
+          fi
+          echo "Version: $TAG   Release: $RELEASE"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+
       - name: Install Apptainer
         run: |
           sudo add-apt-repository -y ppa:apptainer/ppa
           sudo apt-get update
           sudo apt-get install -y apptainer
           apptainer --version
-
-      # - name: Free disk space
-      #   uses: jlumbroso/free-disk-space@main
-      #   with:
-      #     preinstalled-runtimes: true
-      #     android: true
-      #     dotnet: true
-      #     haskell: true
-      #     large-packages: true
-      #     docker-images: true
-      #     swap-storage: false
 
       - name: Prepare build directories
         run: |
@@ -67,35 +99,39 @@ jobs:
             "ip <- installed.packages()[, c('Package', 'Version')]; write.csv(ip, '/mnt/out/r_packages.csv', row.names = FALSE)"
           df -h / /mnt
 
-      # ---- Test runs (no tag): downloadable artifact ----
+      # ---- Test builds: downloadable artifact ----
       - name: Upload test image
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v4
+        if: steps.ver.outputs.release != 'true'
+        uses: actions/upload-artifact@v5
         with:
           name: raer-test
           path: /mnt/out/raer.sif
           compression-level: 0
           retention-days: 7
 
-      # ---- Releases (tag): push to GitHub Container Registry + create release ----
+      # ---- Releases: push to GitHub Container Registry + create release ----
       - name: Push image to ghcr.io
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.ver.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
         run: |
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"   # ghcr.io needs lowercase
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
+          echo "$GH_TOKEN" | \
             apptainer registry login --username "${{ github.actor }}" --password-stdin oras://ghcr.io
-          apptainer push /mnt/out/raer.sif "oras://ghcr.io/${OWNER}/raer:${GITHUB_REF_NAME}"
+          apptainer push /mnt/out/raer.sif "oras://ghcr.io/${OWNER}/raer:${TAG}"
           apptainer push /mnt/out/raer.sif "oras://ghcr.io/${OWNER}/raer:latest"
           echo "OWNER=${OWNER}" >> "$GITHUB_ENV"
 
       # Release assets must be < 2 GiB each: attach the .sif directly if it fits,
       # otherwise split it into parts
       - name: Prepare release files
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.ver.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
         run: |
           sudo rm -rf /mnt/apptainer-tmp /mnt/apptainer-cache   # free space first
           cd /mnt/out
-          NAME="raer_${GITHUB_REF_NAME}.sif"
+          NAME="raer_${TAG}.sif"
           mv raer.sif "$NAME"
           sha256sum "$NAME" > "$NAME.sha256"
           SIZE=$(stat -c %s "$NAME")
@@ -111,13 +147,10 @@ jobs:
 
       # Uses the GitHub CLI (preinstalled on the runner) instead of a Node.js action
       - name: Create GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.ver.outputs.release == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.ver.outputs.tag }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-
           cat > notes.md << 'EOF'
           Apptainer image `raer` __TAG__ (linux/amd64).
 
@@ -139,10 +172,7 @@ jobs:
 
           The def file and a list of installed R packages with versions are attached below.
           EOF
-          sed -i -e 's/^          //' -e "s/__TAG__/${TAG}/g" -e "s/__OWNER__/${OWNER}/g" notes.md
+          sed -i -e "s/__TAG__/${TAG}/g" -e "s/__OWNER__/${OWNER}/g" notes.md
 
-          # Create the release if it doesn't exist yet (e.g. tag pushed with git)
-          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes ""
-
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md
           gh release upload "$TAG" raer.def /mnt/out/r_packages.csv /mnt/out/raer_* --clobber
-          gh release edit "$TAG" --notes-file notes.md
