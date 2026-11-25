@@ -1,0 +1,28 @@
+name: Test DuckDB extensions
+
+# Quick check (about 1 minute): which community extensions actually
+# install AND load on linux_amd64 for each DuckDB version.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        duckdb: ['v2.0.0', 'v2.0.1']
+        extension: ['read_prs', 'read_stat']
+
+    steps:
+      - name: Download DuckDB CLI ${{ matrix.duckdb }}
+        run: |
+          curl -LsSf -o duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/${{ matrix.duckdb }}/duckdb_cli-linux-amd64.zip
+          unzip -q duckdb.zip
+          ./duckdb -c "SELECT version();"
+
+      - name: Install and load ${{ matrix.extension }}
+        run: |
+          ./duckdb -c "INSTALL ${{ matrix.extension }} FROM community; LOAD ${{ matrix.extension }}; SELECT extension_name, extension_version, loaded FROM duckdb_extensions() WHERE extension_name = '${{ matrix.extension }}';"
