@@ -1,0 +1,77 @@
+Bootstrap: docker
+From: rocker/verse:4.6.2
+
+%post
+
+# Install btop etc
+    apt-get update -y
+    apt-get install -y btop tmux libmagick++-dev
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*   
+
+# Define date for CRAN snapshot (to ensure reproducible R package versions)
+    WHEN='2026-11-25'
+
+# Install pak first
+    R -e "install.packages('pak', repos = 'https://packagemanager.posit.co/cran/__linux__/noble/${WHEN}/')"
+
+# Then, all other packages
+
+    R -e "
+
+    pak::repo_add(CRAN = 'RSPM@${WHEN}')
+
+    pkgs <- c(
+        # Data IO
+        'data.table', 'DBI', 'duckdb', 'arrow', 'fst', 'haven', 'iotools', 'here', 'anotherSAS7bdat',
+
+        # Parallel processing
+        'futureverse', 'parallelly', 'furrr', 'targets', 'tarchetypes', 'crew', 'mirai',
+
+        # String handling
+        'stringi', 'stringfish', 'fuzzystring', 'stringdist',
+
+        # Computing
+        'collapse', 'kit', 'matrixStats', 'fastmatch', 'Rfast', 'Rfast2',
+
+        # Plotting
+        'tinyplot', 'ggplot2', 'gridExtra', 'gridGraphics', 'grImport2', 'gridSVG', 'ggeffects',
+        'ggplotify', 'ggridges', 'ggforce', 'ggside', 'ggsurvfit', 'ggstats', 'ggrepel',
+        'ggh4x', 'ggtext', 'ggnewscale', 'DiagrammeR', 'lemon', 'patchwork', 'dagitty', 'ggdag',
+        'ragg', 'svglite', 'systemfonts', 'textshaping', 'ggraph', 'gganimate', 'magick', 'terminalgraphics',
+        'vtree', 'ggalign',
+
+        # Tables
+        'gtsummary', 'gt', 'gtExtras', 'DT', 'reactable', 'xtable', 'huxtable', 'flextable',
+
+        # Epi tools
+        'Epi', 'popEpi', 'epiR',
+
+        # Models
+        'lme4', 'glmmTMB', 'gamm4', 'msm', 
+        'fixest', 'lmerTest', 'lmtest', 'sandwich', 'pbkrtest', 'emmeans', 'marginaleffects',
+        'easystats', 'butcher', 'metagam', 'flexsurv',  'sensemakr',
+
+        # Imputation
+        'mice', 'miceadds', 'mitml', 'missRanger', 'mixgb', 
+
+        # Causal inference
+        'WeightIt', 'MatchIt', 'tmle', 'ltmle', 'drtmle', 'clubSandwich', 'SuperLearner', 'rbounds',
+        'EValue', 'cobalt', 'survey', 'grf', 'DoubleML',
+
+        # ML/AI
+        'ellmer', 'ranger', 'xgboost',
+
+        # Reports
+        'rmarkdown', 'knitr', 'flexdashboard', 'officer'
+    )
+
+    pak::pkg_install(pkgs)
+
+    "
+
+# Add duckDB extensions for handling SAS files (among others)
+
+    mkdir -p /opt/duckdb_ext
+    R -e "con <- DBI::dbConnect(duckdb::duckdb(), config = list(extension_directory = '/opt/duckdb_ext')); for (i in c('read_prs', 'read_stat')){DBI::dbExecute(con, paste('INSTALL', i, 'FROM community')); DBI::dbExecute(con, paste('LOAD', i))}"
+    chmod -R a+rX /opt/duckdb_ext
