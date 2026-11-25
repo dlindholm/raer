@@ -72,6 +72,14 @@ From: rocker/verse:4.6.2
 
 # Add duckDB extensions for handling SAS files (among others)
 
-    mkdir -p /opt/duckdb_ext
-    R -e "con <- DBI::dbConnect(duckdb::duckdb(), config = list(extension_directory = '/opt/duckdb_ext')); for (i in c('read_prs', 'read_stat')){DBI::dbExecute(con, paste('INSTALL', i, 'FROM community')); DBI::dbExecute(con, paste('LOAD', i))}"
-    chmod -R a+rX /opt/duckdb_ext
+    export DUCKDB_R_HOME=/opt/duckdb
+    mkdir -p /opt/duckdb
+    R -e "con <- DBI::dbConnect(duckdb::duckdb()); DBI::dbExecute(con, 'INSTALL read_prs FROM community'); DBI::dbExecute(con, 'LOAD read_prs')"
+    ls -R /opt/duckdb
+    chmod -R a+rX /opt/duckdb
+
+%environment
+    export DUCKDB_R_HOME=/opt/duckdb
+
+%test
+    Rscript -e "con <- DBI::dbConnect(duckdb::duckdb()); DBI::dbExecute(con, 'LOAD read_prs'); print(DBI::dbGetQuery(con, \"SELECT extension_name, install_path FROM duckdb_extensions() WHERE extension_name = 'read_prs'\"))"
